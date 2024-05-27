@@ -11,7 +11,7 @@ This repository will contain the slides from my talk (both the PDF and the raw T
 
 * voterid_replication: an example project that follows the GS style and provides an example .do file. 
 
-* coding_templates: contains coding templates for STATA, R, and LaTex. 
+* coding_templates: contains coding templates and examples for STATA, R, and LaTex (in .do, and .qmd formats)
 
 * coding_tips: contains coding tips, resources, and a link to my STATA guides repo. 
 
