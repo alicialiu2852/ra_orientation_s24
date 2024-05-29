@@ -1,0 +1,209 @@
+---
+title: "Goodness of Fit"
+subtitle: "STAT 111: Week 9"
+institute: "Swarthmore College"
+author: "Alicia Liu"
+date: "03/27/2024"
+format: 
+ beamer
+theme: 
+ "Boadilla"
+---
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(vcd)
+library(grid)
+```
+
+## $\chi^2$ Goodness of Fit Test
+
+-   Also known as Pearson's chi-square test, the $\chi^2$ goodness of fit test uses this test statistic to test for goodness of fit
+
+$$X^2 = \sum^m_{i=1} \frac{[x_i - np_i(\hat{\theta})]^2}{np_i(\hat{\theta})}$$
+
+-   The degrees of freedom are $m-k-1$, where $m$ is the number of categories/cells and $k$ is the number of parameters we are estimating. Note that for each cell, there should be at least around $5$ observations in it.
+
+## LETHAL Prussian Horse Kicks Example
+
+```{r}
+horse_deaths <- tibble(
+  deaths = c(0, 1, 2, 3, 4),
+  count = c(109, 65, 22, 3, 1),
+  proportion = c(0.545, 0.325, 0.11, 0.015, 0.005)
+)
+print(horse_deaths)
+```
+
+-   How many degrees of freedom will we have?
+
+-   We will first estimate $\hat{\lambda}$
+
+## Estimating $\hat{\lambda}$
+
+-   We will compute the MLE estimate for $\hat{\lambda}$.
+
+$$\hat{\lambda} = \frac{0 \cdot 109 + 1 \cdot 65 + 2 \cdot 22 + 3 \cdot 3 + 4 \cdot 1}{200} = $$
+
+```{r}
+lambda_hat = (0*109 + 1*65 + 2*22 + 3*3 + 4*1)/200
+print(lambda_hat)
+```
+
+## Evaluating Goodness of Fit
+
+-   We will combine the last two categories, so we will have 4 categories and one parameter estimated, giving us $4-1-1 = 2$ degrees of freedom.
+
+```{r, echo = FALSE}
+chi_sq_table <- tibble(
+  observed = c(109, 65, 22, 4),
+  expected = c(200*dpois(0, lambda_hat), 200*dpois(1, lambda_hat), 200*dpois(2, lambda_hat), 200*(1-ppois(2, lambda_hat))),
+  deaths = c(0, 1, 2, 3)
+)
+
+chi_sq_table 
+```
+
+## Evaluating Goodness of Fit Cont'd
+
+```{r, echo = TRUE}
+chi_sq_stat = sum((chi_sq_table$observed - chi_sq_table$expected)^2/chi_sq_table$expected)
+print(chi_sq_stat)
+
+p_val = pchisq(chi_sq_stat, 2, lower.tail = FALSE)
+print(p_val)
+```
+
+## Poisson Dispersion Test
+
+-   For a given $\text{Pois}(\lambda)$ distribution, we assume that the rate is constant. The Poisson Dispersion Test is a GLR test where the alternative hypothesis is that the data is Poisson but there are different rates.
+
+$$ \Lambda = \frac{\Pi_{i=1}^n \hat{\lambda}^{x_i}e^{- \hat{\lambda}}/x_i!}{\Pi_{i=1}^n \tilde{\lambda_i}^{x_i}e^{- \tilde{\lambda_i}}/x_i!} $$
+
+where $\hat{\lambda} = \bar{X}$ and where $\tilde{\lambda_i} = x_i$.
+
+-   This simplifies down to $\Lambda = \Pi (\frac{\bar{x}}{x_i})^{x_i} e^{x_i - \bar{x}}$.
+
+-   We can use the $-2\text{log}(\Lambda)$ transformation from last week which results in $2 \sum x_i \text{log}(\frac{x_i}{\bar{x}})$
+
+## Poisson Dispersion Test Cont'd
+
+-   Since we are not estimating any parameters for this test, and we have 200 Corps-Years of data, so we have $200-1 = 199$ degrees of freedom.
+
+```{r, echo = TRUE}
+#Make a vector of x_i that contains our observed values (200 years of data with 109 values of 0, 65 values of 1, 22 values of 2, 3 values of 3, 1 values of 4)
+
+x <- c(rep(0, 109), rep(1, 65), rep(2, 22), rep(3,3), rep(4, 1))
+
+dispersion_stat = 2* sum(log((x/mean(x))^x))
+print(dispersion_stat)
+
+p_val = pchisq(dispersion_stat, 199, lower.tail = FALSE)
+print(p_val)
+```
+
+## Variance Stabilizing Transformations
+
+-   Want to motivate why we can use the square root transformation
+
+-   Take $X_1, ..., X_n \sim^{iid} \text{Pois}(\lambda)$. We know that the MLE is $\hat{\lambda} = \bar{X}$, so $\text{Var}(\bar{X}) = \text{Var}[\frac{1}{n} \sum x_i] = \frac{1}{n^2}\sum \text{Var}[x_i] = \frac{1}{n^2}n \lambda = \frac{\lambda}{n}$. 
+
+-   By the CLT< we know that $\bar{X} \sim \text{Normal}(\lambda, \frac{\lambda}{n})$ and by the Delta method, we know that $g(\bar{X}) \sim N(g(\lambda), (g'(\lambda)^2) \frac{\lambda}{n})$. So we want to find a transformation $g(\lambda)$ such that $g'(\lambda)^2 = \frac{1}{\lambda}$.
+
+-  By integration, we have that this transformation should be $g(\bar{X}) = 2 \sqrt{\bar{X}}$, so this means that $2\sqrt{\bar{X}} \sim N(2 \sqrt{\lambda}, \frac{1}{\lambda} \cdot \frac{\lambda}{n}) = N(2 \sqrt{\lambda}, \frac{1}{n})$. 
+- Rearranging, we have that $\sqrt{n}(2\sqrt{\bar{X}} - 2\sqrt{\lambda}) \sim N(0, 1)$. 
+
+## Hanging Rootgrams
+
+-   The hanging rootgram is a graphical depiction between the observed and fitted values in histograms.
+
+-   Specifically, it is $\sqrt{n_i} - \sqrt{\hat{n_i}}$ where $n_i$ is the observed value and $\hat{n_i}$ is the expected value.
+
+```{r}
+# Adding columns to the chi_sq_table 
+chi_sq_table <- chi_sq_table %>%
+  mutate(sqrt_observed = sqrt(observed)) %>%
+  mutate(sqrt_expected = sqrt(expected)) %>%
+  mutate(hanging_rt = sqrt_observed - sqrt_expected)
+
+# Create a histogram where the x-axis is the # of deaths, and the y-axis is the hanging_rt
+hanging_rg <- ggplot(chi_sq_table, aes(x = deaths, y = hanging_rt)) +
+  geom_bar(width = 0.5, stat = "identity", fill = "lightblue") +
+  labs(title = "Hanging Rootogram of Deaths from Horse Kicks", x = "Number of Deaths") +
+  theme_minimal()
+
+hanging_rg
+```
+
+## Hanging Rootgrams Cont'd
+
+-   Here is the hanging rootgram shown relative to the expected and observed values. The points are the expected values, and whatever is "hanging" off are the observed values.
+
+```{r}
+# Hanging rootgram from rootgram function
+hanging_rg2 <- rootogram(x = chi_sq_table$observed, fitted =chi_sq_table$expected)
+
+hanging_rg2
+```
+
+## Sufficient Statistics Review
+
+-   Main idea: A statistic $T(x)$ is sufficient if all we know about $\theta$ from our given sample is captured by $T(x)$. Ideally, we want this statistic to be the same dimension as our parameter. Additionally, sufficient statistics are not unique! Any 1-1 transformation of $T(x)$ is also sufficient.
+
+-   Mathematically, we can write this as
+
+$$
+    \frac{P(X_1 \cap \hat{\theta} = t, X_2 \cap \hat{\theta} = t, ..., X_n \cap \hat{\theta} =t)}{P(\hat{\theta} = t)} = b(x_1, ..., x_n)
+$$
+
+## $\sum x_i$ as a sufficient statistic
+
+-   From the week 5 presentation on sufficient statistics, we know that $\sum x_i$ is a sufficient statistic for $\lambda$ in a Poisson distribution.
+
+-   Moreover, the distribution of $X_1, ..., X_n | \sum X_i$ is a multinomial distribution. For our particular example of LETHAL Prussian horse kicks, we have this multinomial distribution ${122 \choose X_1, ..., X_n} (\frac{1}{200})^{122}$ where $n = 200$.
+
+## Mean and Variance Comparisons
+
+-   For the Poisson distribution, the mean and variance are equal.
+
+```{r, echo = TRUE}
+
+#Compare our sample of 200 to a bunch of simulated Poisson variables with the same sufficient statistic
+
+nsim = 10000
+vtmr = rep(0, nsim)
+
+for(iter in 1:nsim) {
+  sim_x <- sample(1:200, size =122, replace = TRUE)
+  new_x <- hist(sim_x, breaks = seq(0.5, 200.5, 1), plot = FALSE)$counts
+  vtmr[iter] = (var(new_x))/mean(new_x) 
+}
+
+#Null sampling distribution of mean to variance ratio
+#hist(vtmr)
+
+#p-value (proportion of VTMR greater than the observed)
+p_val <- mean(vtmr >= var(x)/mean(x)) # 0.5034
+```
+
+## Poisson Dispersion Comparison
+
+```{r, echo = TRUE}
+# Testing against Poisson dispersion
+
+pois_disp = rep(0, nsim)
+
+for(iter in 1:nsim) {
+  sim_x <- sample(1:200, size = 122, replace = TRUE)
+  new_x <- hist(sim_x, breaks = seq(0.5, 200.5, 1), plot = FALSE)$counts
+  pois_disp[iter] = 2*sum(log((new_x/mean(new_x))^new_x))
+}
+
+#Null sampling distribution of Poisson dispersion
+#hist(pois_disp)
+
+#p-value (proportion of Poisson dispersion greater than the observed)
+p_val2 <- mean(pois_disp >= dispersion_stat)
+print(p_val2)
+```

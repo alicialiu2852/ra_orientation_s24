@@ -1,0 +1,529 @@
+---
+title: "Exploring QQ-Plots with Confidence Intervals"
+subtitle: "STAT 061 Final Project"
+author: "Anna Jing and Alicia Liu"
+format:
+  html: 
+    theme: flatly
+    embed-resources: true
+    toc: true
+    toc-title: Contents
+    toc-location: left
+    code-link: true
+    fig-width: 6
+    fig-height: 4
+    fig-align: center
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(patchwork)
+library(ggplot2)
+library(qqplotr)
+library(dplyr)
+```
+
+## Introduction
+
+Today we will be exploring making confidence intervals for QQ plots. QQ plots, or quantile-quantile plots, are scatter plots that plot two sets of quantiles against each other. This means that if the data in question fits the distribution it is plotted against, there should be a straight line.
+
+In the code below, we'll generate normal data and then create a QQ plot.
+
+```{r}
+# Create a dataset that contains 100 N(0,1) draws
+set.seed(52)
+simulated_data = tibble(
+  x = rnorm(100)
+)
+
+#Plot the quantiles of the simulated_data against the quantiles of a normal distribution
+qq1 <- ggplot(simulated_data, aes(sample = x)) + 
+  geom_qq() + # Add qq points
+  geom_qq_line() + # Add qq line
+  theme_minimal() + ggtitle("QQ Plot of Generated Normal Data")
+qq1
+```
+
+So, the QQ plot indicates that the data follows a normal distribution well.
+
+Let's see what this will look with non-normal data. We will use exponential data in this next examples.
+
+The code below generates some random exponential distribution data and creates a qqplot.
+
+```{r}
+# Create a dataset that contains 100 Expo draws
+set.seed(52)
+simulated_data2 = tibble(
+  x = rexp(100, rate = 1)
+)
+
+qq2 <- ggplot(simulated_data2, aes(sample = x)) + 
+  geom_qq(distribution = qexp) + # Add qq points, specifying from a Exp
+  geom_qq_line(distribution = qexp) + # Add qq line, specifying from a Exp
+  theme_minimal() + ggtitle("QQ Plot of Generated Exponential Data")
+qq2
+```
+
+Seems to be a bit inconclusive...
+
+I've generated some MYSTERY data and plotted its QQ plot, assuming a normal distribution.
+
+```{r}
+#Upload mystery data
+simulated_data3 <- read_csv("mystery_data.csv")
+
+qqm <- ggplot(simulated_data3, aes(sample = x)) + 
+  geom_qq(distribution = qnorm) + 
+  geom_qq_line(distribution = qnorm) + 
+  theme_minimal() + ggtitle("QQ Plot of Generated Mystery Data")
+qqm
+```
+
+Is this mystery data normal? Maybe...
+
+With our two previous examples, we had data with known distributions where the QQ plot fits pretty well, but perhaps not as well as we'd like.
+
+For all of these plots, how can we tell if the distribution fits a QQ plot "well enough"? Is there a way to somehow figure this out quantify our certainty?
+
+Enter confidence intervals for QQ plots. Rather than just "eyeballing it," a confidence interval for a QQ plot provides us bands of confidence to help us quantify if the data fits the distribution "well enough."
+
+The QQ plot with confidence intervals, along with histograms and distribution tests, is useful for figuring out if your data fits some underlying distribution. It has some benefits over both methods, and we'll compare the methods later.
+
+But let's first see the QQ plots with confidence bands to see if our previous data fit "well enough."
+
+```{r}
+#Normal QQ plot
+qq3 <- ggplot(simulated_data, aes(sample = x)) + 
+  geom_qq() + # Add qq points
+  geom_qq_line() + # Add qq line
+  stat_qq_band() + #Add confidence bands
+  theme_minimal() + ggtitle("QQ Plot Normal Data w/95% Confidence Bands")
+qq3
+
+#Expo QQ plot
+qq4 <- ggplot(simulated_data2, aes(sample = x)) + 
+  stat_qq_band(distribution = "exp") +
+  geom_qq(distribution = qexp) + # Add qq points, specifying from a Exp
+  geom_qq_line(distribution = qexp) + # Add qq line, specifying from a Exp
+  theme_minimal() + ggtitle("QQ Plot Expo Data w/95% Confidence Bands")
+qq4
+
+#Mystery QQ plot
+qq5 <- ggplot(simulated_data3, aes(sample = x)) + 
+  geom_qq(distribution = qnorm) + 
+  geom_qq_line(distribution = qnorm) + 
+  stat_qq_band() + #Add confidence bands
+  theme_minimal() + ggtitle("QQ Plot Mystery Data w/95% Confidence Bands")
+qq5
+```
+
+Much better! So for the two with known distributions, the confidence bands indicated that proper distribution, with around 95% coverage of the points. For the mystery data, this data deviated significantly from the normal distribution in the tails.
+
+::: callout-note
+Question 1: Any guesses for a distribution that looks a lot like a normal data but differs from it in the tails?
+:::
+
+Hint: Dark Irish stout.
+
+T-riffic! (Spelling intended: another hint!) Now, we've discovered a really helpful tool to help us determine which distribution our data follows. Let's see how to calculate these bands.
+
+## How Are QQ plot Intervals Calculated?
+
+To find intervals for QQ plots, there are three steps. First, we need to create an "empirical CDF" of the sample data. Then, we need to compute the distance between this empirical CDF to the CDF of the assumed distribution, and then lastly, we need to determine, using the assumed underlying distribution, how far the confidence bands can extend.
+
+For the random, i.i.d sample $X_1, X_2, ..., X_n \sim F$, an empirical CDF is a a stepwise function with step size $1/n$ defined as below.
+
+$\hat{F_n(t)} = \frac{\text{number of } X_i \text{ in sample } \leq t }{n} = \frac{1}{n} \sum_{i=1}^{t} \mathbb{1}_{X_i \leq t}$
+
+where $\mathbb{1}_{X_i \leq t}$ is an indicator function that equals $1$ if $X_i \leq t$.
+
+This equation is an unbiased estimator of $F_n$.
+
+Next, we need to compute the distance between this empirical CDF and the CDF of the assumed distribution.
+
+The one sample Kolmogorov-Smirnov test tests the hypothesis that for the random, i.i.d sample $X_1, X_2, ..., X_n \sim F$, $F = F_0$, where $F_0$ is the assumed underlying distribution.
+
+It is computed as $S = \text{sup } |F_n(x) - F(x)|$, where $\text{sup}$ denotes the supremum, or the least upper bound, and where $F(x)$ is the empirical CDF. We would reject the null if $S$ is too large.
+
+Intuitively, you can view the absolute value function as measuring the distance between the empirical CDF and the assumed CDF. Since the supremum is an upper bound, taking the supremum means that the $S$ test statistic is taking the $\textit{maximum}$ distance between these two functions across all values of $x$. To summarize, $S$ measures the greatest distance between the empirical CDF and the assumed underlying CDF for the entire function.
+
+Below is a diagram showing the Kolmogorov-Smirnov test. The red is the CDF of the assumed distribution; the blue is the empirical CDF, and the black arrow is the $S$ statistic which is the distance between the empirical CDF and the assumed distribution. Notice that the blue (empirical CDF) is a stepwise function!
+
+!["Diagram of a K-S Test."](KS_example.png) 
+
+Source: By Bscan - Own work, CC0, https://commons.wikimedia.org/w/index.php?curid=25222928
+
+The $S$ test stat does have a corresponding distribution, and we'll denote its critical value as $k$. With an $\alpha$ level of significance, we know that $P[S \leq k] = 1- \alpha$. We can plug in the $|F_n(x) - F(x)|$ for $S$ to create a confidence band.
+
+$|F_n(x) - F(x)| \leq k \\$
+
+$-k \leq F_n(x) - F(x) \leq k \\$
+
+$F_n(x) - k \leq F(x) \leq F_n(x) + k \\$
+
+So for $F(x)$, we have the bounds $[F_n(x) - k, F_n(x) + k]$.
+
+If we believe the underlying distribution $F_0$ is normal, we can replace $F$ with $\Phi(\frac{x-\mu}{\sigma})$ to get $F_n(x) - k \leq \Phi(\frac{x-\mu}{\sigma}) \leq F_n(x) + k$. We can take the inverse of the normal distribution to get the bounds, which result in $\Phi^{-1}(F_n(x) - k) \leq \frac{x-\mu}{\sigma} \Phi^{-1}(F_n(x) + k)$.
+
+## QQ plot vs. Histogram
+One visual tool that provides statisticians insights into the underlying pattern or shape of the data distribution is the histogram, a graph that displays the frequencies across different values. 
+
+Looking at the histogram generated below, do you think it follows normal distribution?
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Generate data 
+data <- rgamma(35, shape = 2)
+
+# Create a data frame
+df <- data.frame(values = data)
+
+# Plot histogram using ggplot2
+histogram <- ggplot(df, aes(x = values)) +
+  geom_histogram(aes(y = after_stat(density))) +
+  stat_function(
+    fun = dnorm,
+    args = list(mean = 0, sd = 1),
+    col="red"
+  )+
+  theme_minimal() +
+  labs(title = "Exmaple 1: Histogram", x = "x", y = "Density")
+
+histogram
+```
+
+It exhibits a right-skewed distribution. However, if you check its QQ plot:
+
+```{r}
+mean <- mean(df$values)
+sd <- sd(df$values)
+mean
+sd
+
+# Plot QQ plot
+qqplot <- ggplot(df, aes(sample = values)) +
+  geom_qq(distribution = qnorm, dparams = list(mean = mean, sd = sd)) +
+  geom_qq_line(distribution = qnorm, dparams = list(mean = mean, sd = sd), col = "red")+
+  stat_qq_band(distribution = "norm", dparams = list(mean = mean, sd = sd)) +
+  theme_minimal() +
+  labs(title = "Example 1: QQ Plot",  x = "Normal quantiles", y = "Sample quantiles")
+
+qqplot
+```
+It shows normality in the QQ plot but with heavier tails at two ends.
+
+Now we look at another example. Looking at the histogram below, can you tell if it's normal?
+```{r}
+# read in example 2 data
+example_data <- read_csv("data_examples.csv",show_col_types = FALSE)
+
+# plot histogram
+histogram2 <- ggplot(example_data, aes(x = C4)) +
+  geom_histogram(aes(y = after_stat(density)))+
+  stat_function(
+    fun = dnorm,
+    args = list(mean = 0, sd = 1),
+    col="red"
+  )+
+  theme_minimal() +
+  labs(title = "Example 2: QQ Plot",  x = "Normal quantiles", y = "Sample quantiles")
+
+histogram2
+
+```
+It's hard to tell if it's a normal distribution, right? But if we look at the QQ plot, the answer is clear.
+```{r}
+# Plot QQ plot
+mu2 = mean(example_data$C4, na.rm = TRUE)
+sd2 = sd(example_data$C4, na.rm = TRUE)
+
+qqplot2 <- ggplot(example_data, aes(sample = C4)) +
+  geom_qq(distribution = qnorm, dparams = list(mean = mu2, sd = sd2)) +
+  geom_qq_line(distribution = qnorm, dparams = list(mean = mu2, sd = sd2), color = "red")+
+  stat_qq_band(distribution = "norm", dparams = list(mean = mu2, sd2)) +
+  theme_minimal() + 
+  labs(title = "Example 2: QQ Plot",  x = "Normal quantiles", y = "Sample quantiles")
+qqplot2
+```
+It follows a normal distribution!
+
+Now we've shown that 1) data that does not look normal in the histogram may follow QQ plot and shows normality 2) data that it's hard to determine whether follows a normal distribution in the histogram shows clear normality in QQ plot.
+
+Why can QQ plots tell better if data follows a normal distribution? 
+
+QQ plots compare sample quantiles and theoretical quantiles directly and thus provides effective identification in deviations of the distribution and skewness. These deviations are noticeable as departures from a straight line in the QQ plot. However, as the histogram simply plots a distribution, it can sometimes be challenging to assess the skewness and tails, particularly for small sample sizes. 
+
+For these reasons, QQ plot is advantageous in showing whether a distribution is normal, and provides more information about skewness and tail performances than histogram.
+
+## QQ-plots Intervals and Distribution Tests
+
+Another tool that statisticians can use to determine if a distribution follows a certain distribution is a distribution test. Today, we'll be using the Kolmogorov--Smirnov test to determine normality, the same test used to determine QQ plot confidence intervals.
+
+Ok, I've generated some normal data in this CSV. Below is code to upload the CSV, plot its histogram, and its qq-plot.
+
+```{r}
+distTest_data <- read.csv("distTest_data.csv")
+hist1 <- ggplot(distTest_data, aes(x = x)) +
+  geom_histogram(aes(y = after_stat(density)), col = "white") +
+  stat_function(
+    fun = dnorm, 
+    args = list(mean = 0, sd = 1), 
+    col = 'blue'
+  ) + 
+  theme_minimal() +
+  ylab("Density") + xlab("x") + ggtitle("Histogram of Data")
+
+hist1
+
+qq_dist <- ggplot(distTest_data, aes(sample = x)) + 
+  geom_qq() + # Add qq points
+  geom_qq_line() + # Add qq line
+  theme_minimal() + ggtitle("QQ Plot of Data")
+qq_dist
+```
+
+Looks normal (literally)!
+
+Let's see what the Kolmogorov--Smirnov Distribution test says.
+
+```{r}
+ks.test(distTest_data$x, pnorm)
+?ks.test
+```
+
+That's a really low p-value. Why is that?
+
+Let's look at how we generated the data.
+
+```{r}
+#Generate data
+#| eval: FALSE
+
+distTest_data1 <- tibble(
+  x = rnorm(10000)
+)
+
+add_data <- tibble(
+  x = c(-4)
+)
+
+distTest_data1 <- bind_rows(distTest_data1, add_data)
+
+write.csv(distTest_data1, "distTest_data.csv", row.names = FALSE)
+```
+
+Do you see something different with this code? Look at the sample size of the data, and then at "add_data" and "bind_rows".
+
+I generated 10,000 normal data points and simply added a -4. Because the sample size of this randomly generated normal data is so large, such that by adding one outlier, the null is rejected, even though this data is clearly normal.
+
+This particular situation is one where the QQ-plot w/confidence intervals has an advantage over the distribution test, since just a quick visual check would let us know the data is normal. Let's see it below.
+
+```{r}
+#QQ Plot of Normal Data
+qq_dist1 <- ggplot(distTest_data, aes(sample = x)) + 
+  geom_qq() + # Add qq points
+  geom_qq_line() + # Add qq line
+  stat_qq_band() + #Add confidence bands
+  theme_minimal() + ggtitle("QQ Plot of Data w/95% Confidence Bands")
+qq_dist1
+```
+
+## Real Life Data Examples
+
+Let's see what you've learned.
+
+We have two real life data exercises. We'll have you guess the underlying distribution of the data from a few choices, and then we'll show you the qq-plots with confidence intervals.
+
+The first will be using a built in R dataset for measuring the height of 812 men in inches.
+
+## Men's Height Data Exercise
+
+Do you think the the height of men is normally or uniformly distributed?
+
+Let's look at a histogram of the data.
+
+```{r}
+heights <- read.csv("heights.csv") 
+
+male_heights <- subset(heights, sex == "Male")  #Taking only male height data 
+ln_height <- log(male_heights$height) #Creating a log version of the height data
+
+mu = mean(male_heights$height)
+sigma = sd(male_heights$height)
+
+min = min(male_heights$height)
+max = max(male_heights$height)
+
+hist2 <- ggplot(male_heights, aes(x=height)) +
+    geom_histogram(aes(y = after_stat(density)), col = "white") +
+    theme_minimal() +
+    stat_function(
+      fun = dnorm, 
+      args = list(mean = mu, sd = sigma), 
+      col = 'blue'
+    ) +
+    stat_function(
+      fun = dunif,
+      args = list(min = min, max = max), 
+      col = 'red'
+    ) +
+    ylab("Density") + xlab("Heights") + ggtitle("Histogram of Male Height Data")
+hist2
+```
+The red line is the uniform distribution, and the blue is the normal.
+
+The code below creates the QQ plots of the height data assuming a normal distribution and a uniform distribution.
+
+```{r}
+#Normal QQ plot
+qqn <- ggplot(male_heights, aes(sample=height)) + 
+  geom_qq(distribution = qnorm, dparams = list(mean = mu, sd = sigma)) + # Add qq points
+  geom_qq_line(dparams = list(mean = mu, sd = sigma)) + # Add qq line
+  stat_qq_band(distribution = "norm", dparams = list(mean = mu, sd = sigma)) + #Add confidence bands
+  theme_minimal() + ggtitle("QQ Plot assuming Normal Data w/95% Confidence Bands")
+qqn
+
+#Uniform QQ plot
+qqun <- ggplot(male_heights, aes(sample=height)) + 
+  geom_qq(distribution = qunif) + # Add qq points, specifying from a Uniform
+  geom_qq_line(distribution = qunif) + # Add qq line, specifying from a Uniform
+  stat_qq_band(distribution = "unif") +
+  theme_minimal() + ggtitle("QQ Plot assuming Uniform Data w/95% Confidence Bands")
+qqun
+
+```
+
+::: callout-note
+Question 2: Now, after seeing the qqplots and their bands, what distribution do you think the height of men follows?
+:::
+
+## Income Data Exercise
+
+In the second example, we will use the 2020 US wage and salary income data from 65535 people. We randomly sampled 80 observations from the original dataset. This data was collected by US Bureau of Labor Statistics. 
+
+What distribution do you think the US individual income in 2020 would follow? Normal, log-normal, or uniform?
+
+Let's start with the histogram of the orginal income data.
+```{r}
+CPSworkers <- read_csv("sampled_CPS.csv", show_col_types =  FALSE)
+
+inc_hist <- ggplot(CPSworkers,aes(x=incwage))+
+  geom_histogram(aes(y=after_stat(density)),bins = 30, col = "white") + theme_minimal() + ylab("Density") + xlab("Income")+ ggtitle("Histogram of US Individual Income in 2020")
+
+inc_hist
+
+```
+It is extremely right-skewed. However, we need to look at QQ plots of the data to further explore what distribution it follows.
+
+
+The code below creates the QQ plots of the income data with confidence intervals, assuming first a normal distribution, log-normal distribution, and a uniform distribution. 
+
+```{r}
+mean2 <- mean(CPSworkers$incwage)
+sd2 <- sd(CPSworkers$incwage)
+
+# Normal QQ plot
+qqn2 <- ggplot(CPSworkers, aes(sample=incwage)) + 
+  geom_qq(distribution = qnorm, dparams = list(mean = mean2, sd = sd2)) +
+  geom_qq_line(dparams = list(mean = mean2, sd = sd2), col = "red") + geom_qq_band(distribution = "norm", dparams = list(mean = mean2, sd = sd2))+ theme_minimal() +ggtitle("QQ Plot assuming Normal Data w/95% Confidence Band")
+
+qqn2
+
+
+# Log-adjust the income variable
+lnwage <- log(CPSworkers$incwage)
+mean3 <- mean(lnwage)
+sd3 <- sd(lnwage)
+
+# Log-normal QQ plot (mean and sd same as normal distr.)
+qqln <- ggplot(CPSworkers, aes(sample=incwage)) + 
+  geom_qq(distribution = qlnorm, dparams = list(meanlog = mean3, sdlog = sd3)) + # Add qq points, specifying from a Log Normal
+  geom_qq_line(distribution = qlnorm, dparams = list(meanlog = mean3, sdlog = sd3), col = "red") + # Add qq line, specifying from a Log Normal
+  stat_qq_band(distribution = "lnorm", dparams = list(meanlog = mean3, sdlog = sd3)) +
+  theme_minimal() + ggtitle("QQ Plot assuming Lognormal Data w/95% Confidence Bands")
+qqln
+
+# Uniform QQ plot
+qqun2 <- ggplot(CPSworkers, aes(sample=incwage)) + 
+  geom_qq(distribution = qunif)+
+  geom_qq_line(distribution = qunif, col ="red")+  geom_qq_band(distribution = "unif") + theme_minimal() + ggtitle("QQ Plot assuming Uniform Data w/95% Confidence Band")
+
+qqun2
+
+```
+
+::: callout-note
+Question 3: After seeing QQ plots with their bands, what distribution do you think the income data follows? 
+:::
+
+Now we'll log-adjust the income variable. Let's see what the histogram look like afterwards:
+```{r}
+lnwage_hist <- ggplot(CPSworkers,aes(x=lnwage))+
+  geom_histogram(aes(y=after_stat(density)),bins = 30, col = "white") + stat_function(
+    fun = dnorm,
+    args = list(mean = mean3, sd = sd3),
+    col="red"
+  ) + theme_minimal() + ylab("Density") + xlab("Income")+ ggtitle("Histogram of US log-income in 2020")
+
+lnwage_hist
+```
+
+Looks normal now!
+
+We know that age is a huge factor contributing to one's income level, so we can run a simple linear regression to explore more about this relationship.
+
+We need to adjust the income data to log normal first and fit the regression $ \text{ln(wage)}_i = \beta_0 + \beta_1 \text{Age}_i +\epsilon_i$. We will also make a residual plot and a QQ-plot of the residuals to check that the residuals are uncorrelated and normally distributed. 
+
+```{r}
+# Adjust the data to log-normal
+lnwage <- log(CPSworkers$incwage)
+
+# Fit the regression model
+model <- lm(lnwage ~ age, data = CPSworkers)
+
+#scatter plot with the fitted model
+scatter_line <- ggplot(CPSworkers, aes(x = age, y = lnwage)) +
+  geom_point() +
+  geom_smooth(color = "orange",
+              method = "lm",
+              formula = y ~ x) +
+  labs(title = "Scatterplot of 2020 US individual income and age w/fitted regression",
+       x = "age",
+       y = "income")
+
+print(scatter_line)
+
+#residual plot
+residual <- ggplot(model, aes(x = fitted(model), y = resid(model))) +
+  geom_point()+
+  labs(title = "Residual plot",
+       x = "Predicted value for income",
+       y = "Residuals")
+
+print(residual)
+
+#QQ plot
+results = broom::augment(model)
+qqpr <- ggplot(results, aes(sample = .resid)) + 
+  geom_qq() +
+  stat_qq_band() +
+  geom_qq_line() + theme_minimal() + ggtitle("QQ Plot of the Residuals")
+qqpr
+
+```
+
+::: callout-note
+Question 4: After seeing these plots, do you believe a linear model is correct for this relationship?
+:::
+
+## Sources
+https://www.stat.auckland.ac.nz/~ihaka/courses/787/lectures-quantiles2-handouts.pdf
+https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test
+https://en.wikipedia.org/wiki/Empirical_distribution_function
+https://statisticsbyjim.com/graphs/qq-plot/
